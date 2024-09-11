@@ -2,9 +2,9 @@
 By Sumant Munjal
 
 Link to Notebooks: 
-    Main Notebook :  https://github.com/smunjal/AIML/blob/main/PA_11/module_11.ipynb
-    Function Notebook :  https://github.com/smunjal/AIML/blob/main/PA_11/CommonFunction.ipynb
-    Note: Functions notebook is loaded from Main
+- Main Notebook :  https://github.com/smunjal/AIML/blob/main/PA_11/module_11.ipynb
+- Function Notebook :  https://github.com/smunjal/AIML/blob/main/PA_11/CommonFunction.ipynb
+    - Note: Functions notebook is loaded from Main
 
 # Problem
 
