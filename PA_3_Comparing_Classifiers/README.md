@@ -6,7 +6,7 @@ Link to Notebooks:  https://github.com/smunjal/AIML/blob/main/PA_3_Comparing_Cla
 # Problem
 
 The problem dataset represents data from a Portugese banking institution and is a collection of the results of 17 marketing campaigns that
-occurred between May 2008 and November 2010,During these phone campaigns, an attractive long-term deposit was offered, this was captured(Yes/No) in the target feature 'y'. The goal for this problem is to compare the performance prediction of the various classifiers namely K Nearest Neighbor, Logistic Regression, Decision Trees, and Support Vector Machines.
+occurred between May 2008 and November 2010,During these phone campaigns, an attractive long-term deposit was offered, this was captured(Yes/No) in the target feature 'y'. The goal for this problem is to compare the performance prediction of the various classifiers namely K Nearest Neighbor, Logistic Regression, Decision Trees, and Support Vector Machines afor the target feature
 
 ### Findings/Takeaways
 
