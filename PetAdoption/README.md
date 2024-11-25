@@ -2,9 +2,9 @@
 By Sumant Munjal
 
 Link to Notebooks: 
-- Main Notebook :  https://github.com/smunjal/AIML/blob/main/PA_11/module_11.ipynb
-- Function Notebook :  https://github.com/smunjal/AIML/blob/main/PA_11/CommonFunction.ipynb
-    - Note: Functions notebook is loaded from Main
+- Main Notebook :  https://github.com/smunjal/AIML/blob/main/PetAdoption/capstone-petfinder.ipynb
+- Common Functions :  https://github.com/smunjal/AIML/blob/main/PetAdoption/common_fn.py
+    - Note: Functions are oaded from Main Notebook
 
 # Problem
 
