@@ -2,27 +2,39 @@
 By Sumant Munjal
 
 Link to Notebooks: 
+- Main Notebook :  https://github.com/smunjal/AIML/blob/main/PetAdoption/capstone-petfinder-EDA.ipynb
 - Main Notebook :  https://github.com/smunjal/AIML/blob/main/PetAdoption/capstone-petfinder.ipynb
 - Common Functions :  https://github.com/smunjal/AIML/blob/main/PetAdoption/common_fn.py
-    - Note: Functions are oaded from Main Notebook
+    - Note: Functions are loaded from Main Notebook
 
 # Problem
 
 The goal of the project is to develop a model to predict the adoptability of pets - specifically, how quickly is a pet adopted? If successful, so that it can be adapted into AI tools that will guide shelters and rescuers around the world on improving their pet profiles' appeal, reducing animal suffering and euthanization.
 
-### Findings - SO Far
+### Findings 
 
 - The problem is a multiclass classification problem
-- Random Forest is the best classifier with test score as 67%, Followed by KNN - 48% and DecisionTree - 46%
-- For one of multiclass the micro score for f1 metric is 19%, but precision is 94%. That is the reason for overall f1-micro score to be around 63%
-- Need to dive in what is going on here
+- AdoptionSpeed(target) has 5 classes,
+    - 0 : '1st Day'
+    - 1 : '1st Week'
+    - 2 : '1st Month'
+    - 3 : '2nd & 3rd month'
+    - 4 : 'Not Adopted'
+- The classes are also imbalanced, so f1-score with average as 'micro', to focus on individual classes
+- Various tuning approaches - SMOTE to balance classes, Hyperparameter tuning, Threshold tuning were done. The f1-score improvement was very small, but class-wise predictions were improved and hence that was the criterion used for eval  
+- Random Forest is the found the classifier with test score as 40%, Followed by XGBoost - 39% and GradientBoosting - 39%
+- Also tried a StackingClassifier - but did not help in overall f1-score
+- Observations on the final predictions done using full training dataset shows
+    - We see a big jump in f1-score from 40% we have been seeing across all tests to 60%.
+    - It might be attributed that we are using the entire training dataset instead of train-test split we did earlier
+    - Also we are using training for predictions, since we don't have predictions for the test dataset for validation
+    - Confusion matrix shows the diagonal having the max for most of classes, apart from Class 0 as we have been observing in all tests
+- Looks like we made a good choice of model selection
+- The final submission.csv with predictions is generated in 'data2/test', which contains PetID,AdoptionSpeed 
 
 
 ### Next Steps
-1. This is still a WIP(Work In Progress)
-2. We have baseline scores for basic models board, we want to try to perform some tuning using hyper-parameters
-3. Sentimental analysis of description test needs to be performed
-4. Possibly do image analysis also
-4. Need to do perform predictions for the test dataset 
+4. Possibly do image analysis, since that dataset was also provied
+
 
 

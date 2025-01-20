@@ -4,14 +4,16 @@ import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
 import os
+import json
+import glob
 from sklearn.preprocessing import OrdinalEncoder, StandardScaler, OneHotEncoder
 from sklearn.linear_model import LogisticRegression, LinearRegression
-from sklearn.svm import SVC
+from sklearn.svm import SVC, SVR
 from sklearn.model_selection import GridSearchCV, train_test_split
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.compose import make_column_transformer, ColumnTransformer
 from sklearn.pipeline import Pipeline
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
 from sklearn.metrics import ConfusionMatrixDisplay, classification_report, RocCurveDisplay, PrecisionRecallDisplay
 from sklearn.metrics import roc_curve, precision_score, recall_score, accuracy_score, make_scorer, confusion_matrix, f1_score
 from sklearn.dummy import DummyClassifier
@@ -23,9 +25,21 @@ from sklearn.preprocessing import PolynomialFeatures, StandardScaler, OneHotEnco
 from sklearn.compose import make_column_transformer, TransformedTargetRegressor, make_column_selector, ColumnTransformer
 from sklearn.inspection import permutation_importance
 from sklearn.feature_selection import SequentialFeatureSelector,SelectFromModel
-from sklearn.metrics import mean_squared_error, get_scorer_names,roc_auc_score
+from sklearn.metrics import get_scorer_names,roc_auc_score
+from sklearn.metrics import  mean_squared_log_error, mean_squared_error, mean_absolute_error, r2_score,root_mean_squared_error, median_absolute_error, root_mean_squared_log_error
 from sklearn.multiclass import OneVsOneClassifier, OneVsRestClassifier
-from sklearn.ensemble import RandomForestClassifier 
+from sklearn.ensemble import RandomForestClassifier, VotingClassifier, AdaBoostClassifier, GradientBoostingClassifier, StackingClassifier
+from sklearn.preprocessing import TargetEncoder
+from sklearn.ensemble import VotingRegressor
+from imblearn.over_sampling import SMOTE
+from imblearn.combine import SMOTEENN, SMOTETomek
+from collections import Counter
+from xgboost import XGBClassifier
+from sklearn.naive_bayes import BernoulliNB
+from functools import reduce
+
+
+
 
 import scikitplot as skplt
 
@@ -56,6 +70,27 @@ class Config:
         self.lgr_params={}
         self.svc_params={}
         self.tree_params={}
+        self.numerical_features = []
+        self.categorical_features = []
+        self.scorer = None
+        self.preprocessor = None
+        self.rnforest_f1report = None
+        self.rnforest_f1report_smote = None
+        self.rnforest_f1report_tuned = None
+        self.rnforest_f1report_tuned_threshold = None
+        self.rnforest_classes_arr = []
+        self.gbc_f1report = None
+        self.gbc_f1report_smote = None
+        self.gbc_f1report_tuned = None
+        self.gbc_f1report_tuned_threshold = None
+        self.gbc_classes_arr = []
+        self.xgb_f1report = None
+        self.xgb_f1report_smote = None
+        self.xgb_f1report_tuned = None
+        self.xgb_f1report_tuned_threshold = None
+        self.xgb_classes_arr = []
+        self.best_model_f1report_before = None
+        self.best_model_f1report_after = None
 
 
 
@@ -156,13 +191,106 @@ class DatasetHolder:
     def get(self):
         return self.X_train, self.X_test, self.y_train, self.y_test
 
+
+class PipelineFactory:
+    def __init__(self, preprocessor):
+        lgr, multi_lgr, onevsone, onevsrest, knn, tree, rnforest, svc, voting, ada, gbc, xgb, stacking = multi_logistic_pipeline_factory(preprocessor)
+        self.dummy = None
+        self.knn = knn
+        self.lgr = lgr
+        self.tree = tree
+        self.svc = svc
+        self.multi_lgr = multi_lgr
+        self.onevsone = onevsone
+        self.onevsrest = onevsrest
+        self.rnforest = rnforest
+        self.voting = voting
+        self.ada = ada
+        self.gbc = gbc
+        self.stacking = stacking
+        self.xgb = xgb
+        
+    def getPipelinesArr(self):
+        return [(self.lgr, 'Logistic Regression'),
+                    (self.onevsone, 'OneVsOne'), 
+                    (self.onevsrest, 'OneVsRest'), 
+                    (self.multi_lgr, 'Multi Logistic Regression'), 
+                    (self.knn, 'KNN'), 
+                    (self.tree, 'Decision Tree'), 
+                    (self.svc, 'SVC'), 
+                    (self.rnforest, 'Random Forest'), 
+                    (self.voting, 'Voting Ensemble'),
+                    (self.ada, 'AdaBoost'),
+                    (self.gbc, 'Gradient Boosting'),
+                    (self.xgb, 'XGBoost')]
+#                    (self.stacking, 'Stacking')]
+
+    def getMinPipelinesArr(self):
+        return [(self.lgr, 'Logistic Regression'),
+                    (self.multi_lgr, 'Multi Logistic Regression'), 
+                    (self.knn, 'KNN'), 
+                    (self.tree, 'Decision Tree'), 
+                    (self.rnforest, 'Random Forest'),
+                    (self.gbc, 'Gradient Boosting')]
+        
+    def updatePipe(self, pipename, pipe):
+        if(pipename == 'Logistic Regression'):
+            self.lgr = pipe
+        elif(pipename == 'Multi Logistic Regression'):
+            self.multi_lgr = pipe
+        elif(pipename == 'OneVsOne'):
+            self.onevsone = pipe
+        elif(pipename == 'OneVsRest'):
+            self.onevsrest = pipe
+        elif(pipename == 'KNN'):
+            self.knn = pipe
+        elif(pipename == 'Decision Tree'):
+            self.tree = pipe
+        elif(pipename == 'SVC'):
+            self.svc = pipe
+        elif(pipename == 'Random Forest'):
+            self.rnforest = pipe
+        elif(pipename == 'Voting Ensemble'):
+            self.voting = pipe
+        elif(pipename == 'AdaBoost'):
+            self.ada = pipe
+        elif(pipename == 'Gradient Boosting'):
+            self.gbc = pipe
+        elif(pipename == 'Stacking'):
+            self.stacking = pipe
+        elif(pipename == 'XGBoost'):
+            self.xgb = pipe
+        else:
+            print(f'Invalid Pipe Name {pipename}')
+
 '''
 Functions to generate visualization
+
 '''
+
+def getPreprocessor(config):
+    preprocessor = ColumnTransformer(
+        transformers = [
+            ('num', StandardScaler(), config.numerical_features),
+            ('cat', TargetEncoder(categories='auto', random_state=42), config.categorical_features)
+        ],remainder='passthrough'
+    )
+    return preprocessor
+
+def getOnehotPreprocessor(config):
+    preprocessor = ColumnTransformer(
+        transformers = [
+            ('num', StandardScaler(), config.numerical_features),
+            ('cat', OneHotEncoder(sparse_output=False, drop = 'if_binary', handle_unknown='ignore'), config.categorical_features)
+        ], remainder='passthrough'
+    )
+    return preprocessor
+
+    
 def isPureBreed(type, breed1, breed2) -> int:
-    purebred = np.where(((breed1 > 0) & (breed2 == 0)), 1, 0)
+    purebred = np.where(((breed1 > 0) & (breed2 == 0)), 1, 2)
     if((purebred == 1) & (type == 1) & (breed1 == 307)):
-        purebred = 0
+        purebred = 2
     return int(purebred)
 
 
@@ -387,53 +515,85 @@ def logistic_pipeline_factory(transformer):
 def multi_logistic_pipeline_factory(transformer):
     lgr = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', LogisticRegression(multi_class='ovr', max_iter=5000, random_state=42))
     ])
 
     multi_lgr = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', LogisticRegression(multi_class='multinomial', max_iter=5000, random_state=42))
     ])
 
     onevsone = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', OneVsOneClassifier(estimator=LogisticRegression(max_iter=5000, random_state=42)))
     ])
 
     onevsrest = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', OneVsRestClassifier(estimator=LogisticRegression(max_iter=5000, random_state=42)))
     ])
 
     knn = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', KNeighborsClassifier())
     ])
 
     tree = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', DecisionTreeClassifier(random_state=42))
     ])
     
     rnforest = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', RandomForestClassifier(random_state=42))
+    ])
+
+    voting = Pipeline([
+        ('transformer', transformer), 
+        ('classifier', VotingClassifier([
+            ('lr', LogisticRegression(max_iter=5000)),
+            ('knn', KNeighborsClassifier()),
+            ('tree', DecisionTreeClassifier()),
+#            ('svc', SVC())
+        ]))
     ])
 
 
     svc = Pipeline([
         ('transformer', transformer), 
-        ('scaler', StandardScaler()), 
         ('classifier', SVC(random_state=42))
     ])
-    return lgr, multi_lgr, onevsone, onevsrest, knn, tree, rnforest, svc
+    
+    ada = Pipeline([
+        ('transformer', transformer),
+        ('classifier', AdaBoostClassifier(estimator=DecisionTreeClassifier(), random_state=42))
+    ])
+    
+    gbc = Pipeline([
+        ('transformer', transformer),
+        ('classifier', GradientBoostingClassifier(random_state=42))
+    ])
+    xgb = Pipeline([
+        ('transformer', transformer),
+        ('classifier', XGBClassifier(random_state=42, objective='multi:softmax',max_delta_step=1, num_class=5))
+    ])
+    
+    estimators = [
+        ('Adaboost', AdaBoostClassifier(random_state=42)),
+        ('GradientBoost', GradientBoostingClassifier(random_state=42)),
+#        ('DecisionTree', DecisionTreeClassifier(random_state=42)),
+        ('RandomTree', RandomForestClassifier(random_state=42)),
+#        ('LogisticRegression', LogisticRegression(multi_class='multinomial', max_iter=5000, random_state=42)), 
+#        ('KNN', KNeighborsClassifier()), 
+        ('Bernoulli NB', BernoulliNB()) 
+    ]
+    XGB = XGBClassifier(random_state=42, objective='multi:softmax',max_delta_step=1, num_class=5, scale_pos_weight=1)
+    stacking = Pipeline([
+        ('transformer', transformer),
+        ('classifier', StackingClassifier(estimators=estimators,final_estimator=XGB))
+    ])
+
+    return lgr, multi_lgr, onevsone, onevsrest, knn, tree, rnforest, svc, voting, ada, gbc, xgb, stacking
 
 
 
@@ -485,6 +645,85 @@ def regression_pipeline_factory(transformer):
     ])
     return linear, ridge, lasso, fs, complex, ms, fs_l
 
+# KNeighborsRegressor, DecisionTreeRegressor, SVR
+
+def try21_regression_pipeline_factory(transformer):
+    linear = Pipeline([
+        ('transformer',  transformer),
+        ('scaler', StandardScaler()),
+        ('model', LinearRegression() )
+    ])
+
+    ridge = Pipeline([
+        ('transformer',  transformer),
+        ('scaler', StandardScaler()),
+        ('model', Ridge() )
+    ])
+
+    knn = Pipeline([
+        ('transformer',  transformer),
+        ('scaler', StandardScaler()),
+        ('model', KNeighborsRegressor() )
+    ])
+
+    tree = Pipeline([
+        ('transformer',  transformer),
+        ('model', DecisionTreeRegressor() )
+    ])
+
+    svr = Pipeline([
+        ('transformer',  transformer),
+        ('scaler', StandardScaler()),
+        ('model', SVR() )
+    ])
+
+    vr = Pipeline([
+        ('transformer',  transformer),
+        ('scaler', StandardScaler()),
+        ('model', VotingRegressor([
+            ('lr', LinearRegression()),
+            ('ridge', Ridge()),
+            ('knn', KNeighborsRegressor()),
+            ('tree', DecisionTreeRegressor()),
+            ('svr', SVR())]))
+    ])
+    
+    
+    return linear, ridge, knn, tree, svr, vr
+
+
+def run_pipelines(pipelineFactory, dataset, config, min=False):
+    config.init_globals()
+    pipelines = pipelineFactory.getPipelinesArr() 
+    if min: 
+        pipelines = pipelineFactory.getMinPipelinesArr() 
+    for item in pipelines:
+        pipe, name = item
+        params = config.dummy_params
+        if(name in ['OneVsOne', 'OneVsRest', 'Multi Logistic Regression', 
+                    'Gradient Boosting', 'AdaBoost', 'Voting Ensemble', 'KNN', 'Stacking', 'XGBoost']):
+            params = {}
+        pipe = perform_test(
+            GridSearchCV(pipe, 
+                         param_grid=params, 
+                         scoring=config.scorer, 
+                         verbose=config.globalloglevel, 
+                         error_score='raise'),
+                         name, 
+                         config, 
+                         dataset)
+        pipelineFactory.updatePipe(name, pipe)
+    return config
+
+def smote_data(X, y):
+    print(f'Dataset shape before SMOTE {Counter(y)}') 
+#    smote = SMOTE(random_state=42)
+#    smote = SMOTEENN(random_state=42)
+    smote = SMOTETomek(random_state=42)
+    X, y = smote.fit_resample(X, y)
+    print(f'Dataset shape after SMOTE {Counter(y)}')
+    return X, y
+
 
 def perform_test(grid, grid_name, config, dataset):
     print(f'=========== Executing - {grid_name} ================')
@@ -495,6 +734,9 @@ def perform_test(grid, grid_name, config, dataset):
     train_mse = round(mean_squared_error(y_train, grid.predict(X_train)), 5)
     test_mse = round(mean_squared_error(y_test, grid.predict(X_test)), 5)
     mean_fit_time = grid.cv_results_.get('mean_fit_time').mean()
+    #cv_train_score = cross_val_score(grid, X_train, y_train).mean()
+    #cv_test_score = cross_val_score(grid, X_test, y_test).mean()
+    
     print(f'Train Score={train_acc}, Test Score={test_acc}, Mean_fit_time={mean_fit_time}')
     print(grid.best_params_)
     print('==========================================')
@@ -509,6 +751,7 @@ def dump_df(config):
     df['Train Time'] = config.mean_fit_times
     df['Train Accuracy'] = config.train_scores
     df['Test Accuracy'] = config.test_scores
+    df['Test MSE'] = config.test_mse
     df['Best Params'] = config.best_params_arr
     return pd.DataFrame.from_dict(df)
 
@@ -547,20 +790,32 @@ def dump_feature_imp(dataset, best_estimator):
     pd.DataFrame(coefs_arr, columns=feature_selected_list).head()
 #    dump_feature_imp(dataset, best_estimator)
 
-def show_logistic_model_stats(dataset, grid, title, config):
-    X_train, X_test, y_train, y_test = dataset.get() 
-    y_preds = grid.predict(X_test)
+def show_logistic_model_stats(dataset, grid, title, config, y_preds=None):
+    X_train, X_test, y_train, y_test = dataset.get()
+    if(y_preds is None): 
+        y_preds = grid.predict(X_test)
     print_classification_report(grid, title, y_preds, y_test)
-    fig, ax = plt.subplots(1, 2, figsize=(12, 6))
-    ax[0].set_title(f"Confusion Matrix : {title}")
-    ax[1].set_title(f'ROC Curve : {title}')
-    ax[1].grid(visible=True)
-    conf_display = show_confusion_matrix(dataset, grid, title, ax[0])
-    roc_display = show_roc_curve(dataset, grid, title, ax[1])
+    fig, ax = plt.subplots(2, 2, figsize=(12, 12))
+    ax[0,0].set_title(f"Confusion Matrix")
+    ax[0,1].set_title(f'ROC Curve')
+    ax[0,1].grid(visible=True)
+    conf_display = show_confusion_matrix(dataset, grid, title, ax[0,0])
+    roc_display = show_roc_curve(dataset, grid, title, ax[0,1])
+    precision_recall_display = show_precision_recall_curve(dataset, grid, title, ax[1,0])
+    show_classification_report(y_test, y_preds, title, ax[1,1])
+    fig.suptitle(f"Model Stats for {title}")
+    config.savefig(fig, f"Model Stats for {title}")    
     plt.show()
 #    print_fpr_tpr(title, y_test, y_preds)
 
 #    show_precision_recall_curve(dataset, grid, title)
+
+def get_classification_report(dataset, grid, y_preds=None):
+    X_train, X_test, y_train, y_test = dataset.get()
+    if(y_preds is None): 
+        y_preds = grid.predict(X_test)
+    class_report = classification_report(y_test, y_preds, output_dict=True)
+    return class_report
 
 def print_fpr_tpr(title, y_true, y_preds, config):
     cm = confusion_matrix(y_true, y_preds)
@@ -570,16 +825,21 @@ def print_fpr_tpr(title, y_true, y_preds, config):
     print(f'FPR={fpr}, TPR={tpr}') 
     config.addConfusionMatrixData(title, tpr, fpr)
 
-def show_confusion_matrix(dataset, grid, title,  axs=None):
-    X_train, X_test, y_train, y_test = dataset.get() 
-    y_preds = grid.predict(X_test)
+def show_confusion_matrix(dataset, grid, title,  axs=None, y_preds=None):
+    X_train, X_test, y_train, y_test = dataset.get()
+    if(y_preds is None): 
+        y_preds = grid.predict(X_test)
     disp = ConfusionMatrixDisplay.from_predictions(y_test, y_preds, ax=axs)
 #    disp = ConfusionMatrixDisplay.from_estimator(grid.best_estimator_, X_test, y_test, ax=axs)
     return disp
 
-def print_classification_report(grid, title, y_preds, y_test):
+def print_classification_report(grid, title, y_preds, y_test, axs=None):
     print(f"Classification Report - {title}")
     print(classification_report(y_test, y_preds))
+    
+def show_classification_report(y_test, y_preds, title, axs):
+    axs.text(0.01, .99, classification_report(y_test, y_preds), ha='left', va='top', transform=axs.transAxes, fontsize=8, color='black')
+
 
 
 def show_roc_curve(dataset, grid, title, axs=None):
@@ -591,36 +851,71 @@ def show_roc_curve(dataset, grid, title, axs=None):
 
 def show_precision_recall_curve(dataset, grid, title,axs=None):
     X_train, X_test, y_train, y_test = dataset.get() 
-    disp = PrecisionRecallDisplay.from_estimator(grid.best_estimator_, X_test, y_test, ax=axs)
-    disp.figure_.suptitle(f"Precision Recall Curve - {title} ")
+ #   disp = PrecisionRecallDisplay.from_estimator(grid.best_estimator_, X_test, y_test, ax=axs)
+    y_probas = grid.predict_proba(X_test)
+    disp = skplt.metrics.plot_precision_recall(y_test, y_probas, ax=axs)    
+    #disp.figure_.suptitle(f"Precision Recall Curve - {title} ")
     return disp
 
-def find_best_pipe(best_model, lgr, mlgr, ovo, ovr, knn, tree, rntree, svc):
+# def show_decision_boundary(dataset, grid, title, axs=None):
+#     X_train, X_test, y_train, y_test = dataset.get() 
+#     y_preds = grid.predict(X_test)
+#     disp = DecisionBoundaryDisplay.from_estimator(
+#         grid.best_estimator_, 
+#         response_method="predict",
+#         X_test, y_test, 
+#         ax=axs
+#         alpha=0.5)
+    
+# disp = DecisionBoundaryDisplay.from_estimator(
+#     classifier, X, response_method="predict",
+#     xlabel=iris.feature_names[0], ylabel=iris.feature_names[1],
+#     alpha=0.5,
+# )
+# disp.ax_.scatter(X[:, 0], X[:, 1], c=iris.target, edgecolor="k")
+    
+#     return disp
 
-    if best_model == 'Multi-Logistic':
-        return mlgr
-    elif best_model == 'Logistic Regression':
+def find_best_pipe(pipename, lgr, mlgr, ovo, ovr, knn, tree, rntree, voting, ada, gbc, svc, stacking, xgb):
+
+    if(pipename == 'Logistic Regression'):
         return lgr
-    elif best_model == 'OneVsOne':
+    elif(pipename == 'Multi Logistic Regression'):
+        return mlgr
+    elif(pipename == 'OneVsOne'):
         return ovo
-    elif best_model == 'OneVsRest':
+    elif(pipename == 'OneVsRest'):
         return ovr
-    elif best_model == 'KNN':
+    elif(pipename == 'KNN'):
         return knn
-    elif best_model == 'DecisionTree':
+    elif(pipename == 'Decision Tree'):
         return tree
-    elif best_model == 'RandomForest':
-        return rntree
-    else:
+    elif(pipename == 'SVC'):
         return svc
+    elif(pipename == 'Random Forest'):
+        return rntree
+    elif(pipename == 'Voting Ensemble'):
+        return voting
+    elif(pipename == 'AdaBoost'):
+        return ada
+    elif(pipename == 'Gradient Boosting'):
+        return gbc
+    elif(pipename == 'Stacking'):
+        return stacking
+    elif(pipename == 'XGBoost'):
+        return xgb
 
+    else:
+        print(f'Invalid Pipe Name {pipename}')
+        return None
 
 def cust_bar_plot(df,title,config, imgName):
     new_title, figcounter = config.getFigTitle(title)
-    ax = df.round(2).plot(kind='bar',rot=True, title=new_title, grid=True, figsize=(10,6))
+    ax = df.round(2).plot(kind='bar',rot=True, title=new_title, grid=True, figsize=(18,6),ylabel=f'{config.scoring_metric} score')
     for container in ax.containers:
         ax.bar_label(container)
 #    ax.get_figure().savefig(images_path + imgName)
+    plt.xticks(rotation=45)
     config.savefig(ax.get_figure(), new_title)
     return figcounter
 
@@ -639,6 +934,20 @@ def get_custom_scorer(scoring_metric):
     else:
         return make_scorer(accuracy_score, greater_is_better=True,  pos_label=1)
 '''
+def get_custom_scorer_regression(scoring_metric):
+    if scoring_metric == 'accuracy':
+        return make_scorer(accuracy_score, greater_is_better=True,  pos_label=1)
+    elif scoring_metric == 'precision':
+        return make_scorer(precision_score, greater_is_better=True,  pos_label=1)
+    elif scoring_metric == 'recall':
+        return make_scorer(recall_score, greater_is_better=True,  pos_label=1)
+    elif scoring_metric == 'f1':
+        return make_scorer(f1_score, greater_is_better=True,  pos_label=1)
+    elif scoring_metric == 'roc_auc':
+        return make_scorer(roc_auc_score, greater_is_better=True)
+    else:
+        return make_scorer(accuracy_score, greater_is_better=True,  pos_label=1)
+
 def get_custom_scorer(scoring_metric, average='binary'):
     if scoring_metric == 'accuracy':
         return make_scorer(accuracy_score, greater_is_better=True)
@@ -650,8 +959,22 @@ def get_custom_scorer(scoring_metric, average='binary'):
         return make_scorer(f1_score, average=average, greater_is_better=True)
     elif scoring_metric == 'roc_auc':
         return make_scorer(roc_auc_score, average=average, greater_is_better=True)
+    elif scoring_metric == 'neg_mean_absolute_error':
+        return make_scorer(mean_absolute_error, greater_is_better=False)
+    elif scoring_metric == 'neg_mean_squared_error':
+        return make_scorer(mean_squared_error, greater_is_better=False)
+    elif scoring_metric == 'neg_root_mean_squared_error':
+        return make_scorer(root_mean_squared_error, greater_is_better=False)
+    elif scoring_metric == 'neg_mean_squared_log_error':
+        return make_scorer(mean_squared_log_error, greater_is_better=False)
+    elif scoring_metric == 'neg_root_mean_squared_log_error':
+        return make_scorer(root_mean_squared_log_error, greater_is_better=False)
+    elif scoring_metric == 'neg_median_absolute_error':
+        return make_scorer(median_absolute_error, greater_is_better=False)
+    elif scoring_metric == 'r2':
+        return make_scorer(r2_score, greater_is_better=True)
     else:
-        return make_scorer(accuracy_score, greater_is_better=True)
+        return None
 
 def select_top_classifier(df):
     best_model = df.sort_values('Test Accuracy', ascending=False).index[0]
@@ -735,11 +1058,18 @@ def getX_Y(df):
     y = df['price']
     return X,y
 
+def get_features_set(df):
+    numerical_features = df.select_dtypes(include=['int64', 'float64']).columns
+    categorical_features = df.select_dtypes(include=['object','category']).columns
+    print('Numerical Features = ', numerical_features)
+    print('Cateorical Features = ', categorical_features)
+    return numerical_features, categorical_features
+
 def get_cat_features(df):
     numerical_features = df.select_dtypes(include=['int64', 'float64']).columns
     categorical_features = df.select_dtypes(include=['object']).columns
-#    print('Numerical Features = ', numerical_features)
-#    print('Cateorical Features = ', categorical_features)
+    print('Numerical Features = ', numerical_features)
+    print('Cateorical Features = ', categorical_features)
     return categorical_features
     
 def convert_cat_to_codes(df):
@@ -840,14 +1170,43 @@ def selected_columns_list(cols_arr ,selected_list):
             selected_columns.append(cols_arr[i])
     return selected_columns
 
-def dump_feature_imp(dataset, pipeline):
+def dump_feature_imp(dataset, config, pipeline, columns):
     X_train, X_test, y_train, y_test = dataset.get()
-    r = permutation_importance(pipeline, X_test, y_test, random_state=42, n_repeats=30, scoring='r2')
+    r = permutation_importance(pipeline, X_test, y_test, random_state=42,
+                               n_repeats=30, 
+                               scoring=config.scorer)
     for i in r.importances_mean.argsort()[::-1]:
         if r.importances_mean[i] - 2 * r.importances_std[i] > 0:
-            print(f"{X.columns[i]:<18}  "
+            print(f"{columns[i]:<18}  "
             f"{r.importances_mean[i]:.3f} "
             f" +/- {r.importances_std[i]:.3f}")
+
+def plot_feature_imp(dataset, config, pipeline, columns):
+    fig, ax = plt.subplots(1, 1, figsize=(6, 6))
+    X_train, X_test, y_train, y_test = dataset.get()
+    result = permutation_importance(pipeline, X_test, y_test, random_state=42,
+                               n_repeats=30, 
+                               scoring=config.scorer)
+    sorted_importances_idx = result.importances_mean.argsort()
+    importances = pd.DataFrame(
+        result.importances[sorted_importances_idx].T,
+        columns=columns[sorted_importances_idx],
+    )
+    importances.plot.box(vert=False, whis=10, ax=ax)
+    title = "Permutation Importances (test set)"
+    ax.set_title(title)
+    ax.axvline(x=0, color="k", linestyle="--")
+    ax.set_xlabel("Decrease in accuracy score")
+    ax.figure.tight_layout()
+    config.savefig(fig, title)            
+
+def dump_feature_imp_all(dataset, config, pipeline, columns):
+    X_train, X_test, y_train, y_test = dataset.get()
+    r = permutation_importance(pipeline, X_test, y_test, random_state=42, n_repeats=30, scoring=config.scorer)
+    for i in r.importances_mean.argsort()[::-1]:
+        print(f"{columns[i]:<18}  "
+        f"{r.importances_mean[i]:.3f} "
+        f" +/- {r.importances_std[i]:.3f}")
 
 
 def feature_coef_plots(config, plot_coefs_df):
@@ -862,4 +1221,155 @@ def feature_coef_plots(config, plot_coefs_df):
     ax.set_ylabel('Coefficent Values')
     ax.set_xlabel('Feature Name')
     config.savefig(fig, title)
+    
+def show_feature_importance_using_shap(dataset, config, pipeline, columns):
+    # Preprocess the test data using the same pipeline to transform categorical features
+    X_test_preprocessed = pipeline.best_estimator_.named_steps['transformer'].transform(X_test)
+
+    # Using DecisionTree from the VotingRegressor for SHAP analysis
+    explainer = shap.Explainer(pipeline.best_estimator_.named_steps['classifier'], X_test_preprocessed)
+    shap_values = explainer(X_test_preprocessed)
+
+    # Summary plot for SHAP values
+    print("\nGenerating SHAP Summary Plot...")
+    shap.summary_plot(shap_values, X_test_preprocessed, columns)
+
+    # Step 3: Visualize Permutation Importance as a Bar Plot
+    plt.figure(figsize=(10, 6))
+    plt.barh(top_10_features_perm, top_10_importances, color='skyblue')
+    plt.xlabel('Permutation Importance')
+    plt.ylabel('Feature')
+    plt.title('Top 10 Features by Permutation Importance')
+    plt.gca().invert_yaxis()  # To have the most important at the top
+    plt.tight_layout()
+    plt.show()
+    
+        
+    
+def sentiment_generator(text):
+    sia = SentimentIntensityAnalyzer()
+    return sia.polarity_scores(text)    
+
+
+def generateDocumentScoreCSVfromJson(imputdir, outputdir):
+    # Get a list of all JSON files in the directory
+    json_files = glob.glob(f'{imputdir}/*.json')
+
+    # Create an empty list to store the DataFrames
+    dfs = []
+
+    # Loop through each file and append the DataFrame to the list
+    for file in json_files:
+        with open(file) as data_file:    
+            data = json.load(data_file)  
+            df = pd.json_normalize(data, meta=[['magnitude', 'score']])
+            filename = file.split('/')[2].split('.')[0]
+            df['PetID'] = filename
+            dfs.append(df)
+
+    # Concatenate all DataFrames into a single DataFrame
+    combined_df = pd.concat(dfs, ignore_index=True)
+    combined_df = combined_df.drop(columns=['sentences', 'tokens', 'entities', 'language', 'categories'])
+    combined_df.to_csv(f'{outputdir}/sentiment.csv')
+
+
+def get_tuned_predictions(tuner, pipelineName, pipeline, dataset, config):
+    X_train, X_test, y_train, y_test = dataset.get()
+    target_classes = np.sort(y_train.unique())
+
+    best_threshold = tuner.tune_threshold(
+        y_true=y_test, 
+        target_classes=target_classes,
+        y_pred_proba=pipeline.predict_proba(X_test),
+        metric=f1_score,
+        average='macro',
+        higher_is_better=True,
+        max_iterations=5,
+        default_class='4'
+    )
+    
+    print(f'{pipelineName} - ', best_threshold)
+    tuned_pred = tuner.get_predictions(
+        target_classes=target_classes,
+        y_pred_proba=pipeline.predict_proba(X_test), 
+        default_class='4', 
+        thresholds=best_threshold)
+    tuned_pred_int = list(map(int, tuned_pred))
+    return tuned_pred_int
+
+
+def find_best_threshold(y_true, y_prob, num_classes):
+    """Finds the best threshold for each class in a multiclass classification problem 
+    based on the F1 score."""
+
+    best_thresholds = []
+
+    for class_idx in range(num_classes):
+        f1_scores = []
+        thresholds = [i/100 for i in range(100)]
+
+        for threshold in thresholds:
+            y_pred = (y_prob[:, class_idx] >= threshold).astype(int)
+            f1 = f1_score(y_true == class_idx, y_pred)
+            f1_scores.append(f1)
+
+        best_threshold = thresholds[np.argmax(f1_scores)]
+        best_thresholds.append(best_threshold)
+
+    return best_thresholds
+
+def show_f1_score_comparison(dfdata, title, config):
+    data_frames = []
+    for df, legendname in dfdata:
+        dfs1 = pd.DataFrame.from_dict(df).drop(
+        columns={'macro avg', 'weighted avg'}).drop(['precision', 'recall', 'support']).T.rename(columns={'f1-score' : legendname})
+        data_frames.append(dfs1)
+    f1_combined_df = reduce(lambda  left,right: pd.merge(left, right, left_index=True, right_index=True), data_frames)
+    figcounter = cust_bar_plot(f1_combined_df, f'Classwise F1-score comparison - {title}', 
+              config, f'classwise_f1_score_comparison-{title}.png')    
+
+def show_classdata_comparison(dataarr, target_classes, columns, title, config):
+    combined_arr = dataarr[0]
+    for i in range(1, len(dataarr)):
+        combined_arr = np.vstack((combined_arr, dataarr[i]))
+    df = pd.DataFrame(combined_arr.T, columns=columns, index=target_classes)
+    figcounter = cust_bar_plot(df, f'Classwise comparison - {title}', config, f'classwise_comparison-{title}.png')    
+
+def sequential_feature_importance_search(daholder, config):
+    X_train, X_test, y_train, y_test = dsholder.get()
+    test_config = config
+
+    categorical_features = ['Type', 'Gender', 'MaturitySize', 
+                        'FurLength', 'Vaccinated', 'Dewormed', 
+                        'Sterilized', 'Health', 'State', 'hasName', 'purebred',
+                        'singlecolor']
+
+    #Numerical fetaures
+    numerical_features = list(set(cleaned_pets_df.drop(columns='AdoptionSpeed', axis=1).columns) - set(categorical_features))
+    test_config.categorical_features = categorical_features
+    test_config.numerical_features = numerical_features
+
+    all_features = X_train.columns
+    for features_to_drop in all_features:
+        numerical_features = list(set(cleaned_pets_df.drop(columns='AdoptionSpeed', axis=1).columns) - set(categorical_features))
+        test_config.categorical_features = categorical_features
+        test_config.numerical_features = numerical_features
+        print(f'****************** {features_to_drop} ****************************')
+    #    features_to_drop = np.array(selected_feature)
+        X_train_trimmed = X_train.drop(columns=features_to_drop, axis=1)
+        X_test_trimmed = X_test.drop(columns=features_to_drop, axis=1)
+    #    print(X_train_trimmed.columns)
+        features_to_drop_list = [features_to_drop]
+        test_config.categorical_features = list(set(test_config.categorical_features) - set(features_to_drop_list))
+        test_config.numerical_features = list(set(test_config.numerical_features) - set(features_to_drop_list))
+    #    print(test_config.categorical_features)
+    #    print(test_config.numerical_features)
+        dsholder5 = cf.DatasetHolder()
+        dsholder5.update(X_train_trimmed, X_test_trimmed, y_train, y_test)
+        preprocessor = cf.getPreprocessor(test_config)
+        pipelinefactory = cf.PipelineFactory(preprocessor)
+        # Run pipelines and collect data
+        cf.perform_test(GridSearchCV(pipelinefactory.rnforest, param_grid=test_config.dummy_params, scoring=test_config.scorer, 
+                                        verbose=config.globalloglevel, error_score='raise'),  'RandomForest', test_config, dsholder5)
+
  
